@@ -1835,9 +1835,9 @@ function renderProfileCardModal(){
       const oppScore=m.player1_id===p.id?m.p2_score:m.p1_score;
       histCard.appendChild(el(`
         <div class="match-row">
-          <div class="match-result">${isWinner?'✅':'❌'}</div>
-          <div class="match-opponent">${esc(m.player1_id===p.id?(m.p2_username||'Oyuncu'):(m.p1_username||'Oyuncu'))}</div>
+          <div class="match-opponent">Oyuncu</div>
           <div class="match-score">${myScore} - ${oppScore}</div>
+          <div class="match-result">${isWinner?'✅':'❌'}</div>
           <div class="match-time">${relativeTime(m.played_at)}</div>
         </div>
       `));
@@ -2148,19 +2148,11 @@ function renderAuction(){
         <div class="countdown-bar"><div class="countdown-fill" id="cd-fill" style="width:${countdownPct()}%"></div></div>
       </div>
       ${isMyTurn?`
-        <div class="bid-row" style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-          <button class="btn-secondary btn-sm" id="btn-minus" style="width:36px;flex-shrink:0;font-size:18px;padding:0">−</button>
-          <input type="number" id="bid-amt" min="${minBid}" max="${myBal}" value="${Math.min(Math.max(minBid,1),myBal)}" ${myBal<minBid?'disabled':''} style="text-align:center;flex:1">
-          <button class="btn-secondary btn-sm" id="btn-plus" style="width:36px;flex-shrink:0;font-size:18px;padding:0">+</button>
+        <div class="bid-row">
+          <input type="number" id="bid-amt" min="${minBid}" max="${myBal}" value="${Math.min(Math.max(minBid,1),myBal)}" ${myBal<minBid?'disabled':''}>
+          <button class="btn-primary" id="btn-bid" ${myBal<minBid?'disabled':''}>Teklif Ver</button>
         </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
-          ${[1,3,5].map(n=>{const v=Math.min((a.currentBid?a.currentBid.amount:0)+n,myBal);return v>=minBid?`<button class="btn-secondary btn-sm quick-bid" data-amt="${v}" style="flex:1;min-width:48px">+${n}</button>`:''}).join('')}
-          ${myBal>=minBid?`<button class="btn-secondary btn-sm quick-bid" data-amt="${myBal}" style="flex:1;min-width:64px">Tümü 💰</button>`:''}
-        </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn-primary" id="btn-bid" style="flex:1" ${myBal<minBid?'disabled':''}>Teklif Ver</button>
-          <button class="btn-secondary" id="btn-pass" ${!a.currentBid?'disabled':''} style="flex:1">Pas Geç</button>
-        </div>
+        <button class="btn-secondary" id="btn-pass" ${!a.currentBid?'disabled':''}>Pas Geç</button>
         ${!a.currentBid?'<p style="font-size:12px;color:#6b7080;margin-top:6px">İlk teklifi vermeden pas geçemezsin.</p>':''}
         ${myBal<minBid?'<p style="font-size:12px;color:#6b7080;margin-top:6px">Bakiyen yetersiz.</p>':''}
       `:`<div class="observer">Rakibin hamlesini bekle…</div>`}
@@ -2168,32 +2160,14 @@ function renderAuction(){
   `);
   app.appendChild(card);
   if(isMyTurn){
-    const amtInput=card.querySelector('#bid-amt');
-    const getAmt=()=>parseInt(amtInput?.value||'0',10);
-    const setAmt=(v)=>{if(amtInput)amtInput.value=Math.min(Math.max(v,minBid),myBal);};
-
-    // +/- stepper
-    card.querySelector('#btn-plus')?.addEventListener('click',()=>setAmt(getAmt()+1));
-    card.querySelector('#btn-minus')?.addEventListener('click',()=>setAmt(getAmt()-1));
-
-    // Hızlı teklif butonları
-    card.querySelectorAll('.quick-bid').forEach(btn=>{
-      btn.addEventListener('click',()=>{
-        const amt=parseInt(btn.dataset.amt,10);
-        if(!amt||amt<minBid){showErr(`Min teklif ${minBid} 🪙`);return;}
-        SFX.bid(amt, myBal);
-        sendAction('PLACE_BID',{bidderId:myPlayerId,amount:amt});
-      });
-    });
-
     card.querySelector('#btn-bid')?.addEventListener('click',()=>{
-      const amt=getAmt();
+      const amt=parseInt(card.querySelector('#bid-amt').value,10);
       if(!amt||amt<minBid){showErr(`Min teklif ${minBid} 🪙`);return;}
-      SFX.bid(amt, currentState.players[myPlayerId].balance + amt);
+      SFX.bid(amt, currentState.players[myPlayerId].balance + amt); // artan heyecan
       sendAction('PLACE_BID',{bidderId:myPlayerId,amount:amt});
     });
     card.querySelector('#btn-pass')?.addEventListener('click',()=>{ SFX.pass(); sendAction('PASS',{passerId:myPlayerId}); });
-    amtInput?.addEventListener('keydown',e=>{if(e.key==='Enter')card.querySelector('#btn-bid')?.click();});
+    card.querySelector('#bid-amt')?.addEventListener('keydown',e=>{if(e.key==='Enter')card.querySelector('#btn-bid')?.click();});
   }
 }
 
@@ -2252,8 +2226,10 @@ function renderRoundResult(){
     </div>
   `);
   app.appendChild(card);
-  // Hayvan uçuş animasyonu handleWsMsg içinde (STATE_UPDATE gelince, bir kez)
-  // tetikleniyor — burada tekrar çağırmıyoruz, çift animasyonu önlemek için.
+  // Hayvanın kazanan tarafa doğru uçtuğu animasyon — hem manuel hem
+  // otomatik dağıtımda (r.auto) çalışır. Raf, uçuş bitince güncellenir
+  // ki hayvan "iniş" anında rafta belirmiş gibi görünsün.
+  flyAnimalToWinner(r);
   setTimeout(()=>renderSideShelves(), 620);
 }
 
@@ -2340,7 +2316,7 @@ function renderBattle(){
       <div class="b-side"><div class="b-emoji">${p2a?.emoji||'?'}</div><div>${esc(currentState.players.player2.name)}</div><div style="font-size:12px;color:#6b7080">×${p2a?.quantity||0}</div></div>
     `;
     const secLeft=Math.max(0,Math.ceil((countdownEnd-Date.now())/1000));
-    bact.innerHTML=`<div class="countdown-wrap"><div class="countdown-label" id="cd-lbl">⚔️ ${secLeft}sn içinde savaş başlıyor…</div><div class="countdown-bar"><div class="countdown-fill" id="cd-fill" style="width:${countdownPct()}%"></div></div></div>`;
+    bact.innerHTML=`<div class="countdown-wrap"><div class="countdown-label" id="cd-lbl">${secLeft}sn içinde savaşıyor…</div><div class="countdown-bar"><div class="countdown-fill" id="cd-fill" style="width:${countdownPct()}%"></div></div></div>`;
   } else {
     const m=b.currentMatch;
     bvs.innerHTML=`
@@ -2368,9 +2344,6 @@ function renderFinal(){
   const win=s1===s2?null:(s1>s2?'player1':'player2');
   const iWon=win===myPlayerId;
   const xpGain=iWon?XP_WIN:XP_LOSE;
-  const opponentId=myPlayerId==='player1'?'player2':'player1';
-  const oppName=currentState.players[opponentId]?.name||'Rakip';
-  const myName=currentState.players[myPlayerId]?.name||'Sen';
 
   const card=el(`
     <div class="card" style="text-align:center">
@@ -2383,45 +2356,8 @@ function renderFinal(){
   `);
   app.appendChild(card);
 
-  // ── Maç Özeti ─────────────────────────────────────────
-  if(b.matches && b.matches.length){
-    const summaryCard=el(`<div class="card"><div style="font-weight:700;margin-bottom:10px;text-align:center">📋 Maç Özeti</div></div>`);
-    b.matches.forEach((m,i)=>{
-      const p1=currentState.players.player1;
-      const p2=currentState.players.player2;
-      const p1a=m.player1Animal;
-      const p2a=m.player2Animal;
-      const myAnimal=myPlayerId==='player1'?p1a:p2a;
-      const oppAnimal=myPlayerId==='player1'?p2a:p1a;
-      const myPow=myPlayerId==='player1'?m.player1Power:m.player2Power;
-      const oppPow=myPlayerId==='player1'?m.player2Power:m.player1Power;
-      const iWonMatch=m.winnerId===myPlayerId;
-      summaryCard.appendChild(el(`
-        <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #1e2330;font-size:13px">
-          <div style="width:20px;color:#6b7080;text-align:center">${i+1}</div>
-          <div style="flex:1;display:flex;align-items:center;gap:4px">
-            <span style="font-size:20px">${myAnimal?.emoji||'?'}</span>
-            <span style="font-weight:600;color:${iWonMatch?'#4fd671':'#e85f5f'}">${myPow?.final||0}</span>
-          </div>
-          <div style="font-size:16px">${iWonMatch?'✅':'❌'}</div>
-          <div style="flex:1;display:flex;align-items:center;gap:4px;justify-content:flex-end">
-            <span style="font-weight:600;color:${!iWonMatch?'#4fd671':'#e85f5f'}">${oppPow?.final||0}</span>
-            <span style="font-size:20px">${oppAnimal?.emoji||'?'}</span>
-          </div>
-        </div>
-      `));
-    });
-    // Toplam güç karşılaştırması
-    const myTotal=b.matches.reduce((s,m)=>{const p=myPlayerId==='player1'?m.player1Power:m.player2Power;return s+(p?.final||0);},0);
-    const oppTotal=b.matches.reduce((s,m)=>{const p=myPlayerId==='player1'?m.player2Power:m.player1Power;return s+(p?.final||0);},0);
-    summaryCard.appendChild(el(`
-      <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:12px;color:#6b7080">
-        <span>${esc(myName)}: toplam güç <strong style="color:#c9d1e0">${myTotal}</strong></span>
-        <span>${esc(oppName)}: <strong style="color:#c9d1e0">${oppTotal}</strong></span>
-      </div>
-    `));
-    app.appendChild(summaryCard);
-  }
+  const opponentId=myPlayerId==='player1'?'player2':'player1';
+  const oppName=currentState.players[opponentId]?.name||'Rakip';
 
   // Rakip rövanş istiyor → kabul/red seçimi göster
   if(rematchStatus==='incoming'){
@@ -2784,7 +2720,7 @@ function startCountdown(endAt,onDone){
       else if(currentState?.status==='battle'){
         // revealed sonrası yazı ve bar yok
         if(!currentState.battle?.revealed)
-          lbl.textContent=`⚔️ ${sec}sn içinde savaş başlıyor…`;
+          lbl.textContent=`${sec}sn içinde savaşıyor…`;
       }
     }
     if(fill)fill.style.width=countdownPct()+'%';
